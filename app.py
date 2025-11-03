@@ -244,9 +244,9 @@ def build_presentation(xlsm_path: str, template_path: str) -> io.BytesIO:
     df_mileage = dfs["MileageDemo"]
 
     variable_mapping = {
-        "EXECANALYSIS5": df_leasing.iloc[36,0],
-        "VOANALYSIS13": df_leasing.iloc[34,0],
-        "MTANALYSIS14": df_leasing.iloc[33,0],
+        "EXECANALYSIS5": df_leasing.iloc[36,1],
+        "VOANALYSIS13": df_leasing.iloc[34,1],
+        "MTANALYSIS14": df_leasing.iloc[33,1],
         "VL10": f"{int(round(df_leasing.iloc[0, 0] * 100, 0))}%",
         "VOP08": "{:,.0f}".format(df_leasing.iloc[0, 3]),
         "LD08": f"{int(round(df_leasing.iloc[3, 3] * 100, 0))}%",
