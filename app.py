@@ -244,6 +244,16 @@ def build_presentation(xlsm_path: str, template_path: str) -> io.BytesIO:
     df_mileage = dfs["MileageDemo"]
 
     variable_mapping = {
+        "MTZIP1": df_zipcodes[0,11],
+        "MTZIP2": df_zipcodes[1,11],
+        "MTZIP3": df_zipcodes[2,11],
+        "MTZIP4": df_zipcodes[3,11],
+        "MTZIP5": df_zipcodes[4,11],
+        "MTZIP6": df_zipcodes[5,11],
+        "MTZIP7": df_zipcodes[6,11],
+        "MTZIP8": df_zipcodes[7,11],
+        "MTZIP9": df_zipcodes[8,11],
+        "MTZIP10": df_zipcodes[9,11],
         "EXECANALYSIS5": df_leasing.iloc[36,1],
         "VOANALYSIS13": df_leasing.iloc[34,1],
         "MTANALYSIS14": df_leasing.iloc[33,1],
