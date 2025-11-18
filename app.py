@@ -65,7 +65,7 @@ HTML = """
     h1{ font-size:26px; }
     h2{ font-size:20px; color:#fff; }
     p.sub{ margin:0 0 18px; color:var(--muted); }
-    form{ display:flex; flex-wrap:wrap; gap:12px; align-items:center; }
+    form{ display:flex; flex-wrap:wrap;ap:12px; align-items:center; }
     .file-wrap{
       position:relative; display:flex; align-items:center; gap:10px;
       border:1px dashed var(--border); background:rgba(2,6,23,.5);
@@ -247,7 +247,7 @@ def build_presentation(xlsm_path: str, template_path: str) -> io.BytesIO:
         "MTZIP1": df_zipcodes.iloc[0,11],
         "MTZIP2": df_zipcodes.iloc[1,11],
         "MTZIP3": df_zipcodes.iloc[2,11],
-        "MTZIP4": df_zipcodes.iloc[3,11],
+        "MTZIP4": df_zipcodes.iloc[   3,11],
         "MTZIP5": df_zipcodes.iloc[4,11],
         "MTZIP6": df_zipcodes.iloc[5,11],
         "MTZIP7": df_zipcodes.iloc[6,11],
@@ -277,6 +277,9 @@ def build_presentation(xlsm_path: str, template_path: str) -> io.BytesIO:
         "DDANALYSIS12": df_drawdemos.iloc[0, 18],
         "CMPANALYSIS10": df_sheet2.iloc[0, 9],
         "MILANALYSIS11": df_mileage.iloc[0, 3],
+        "DURANALYSIS39": df_leasing.iloc[32, 1],
+        "FREQANALYSIS38": df_leasing.iloc[33, 1],
+        "DTANALYSIS37": df_distance.iloc[0, 12],
 
         # Mileage Demos mapping
         "MA121": f"{df_mileage.iloc[2, 2]:,.0f}", "MB121": f"{df_mileage.iloc[2, 3]:,.0f}", "MC121": f"{df_mileage.iloc[2, 4]:,.0f}", "MD121": f"{df_mileage.iloc[2, 5]:,.0f}",
@@ -334,9 +337,9 @@ def build_presentation(xlsm_path: str, template_path: str) -> io.BytesIO:
         9: df_sheet2,
         11: df_drawdemos,
         14: df_zipcodes,
-        36: df_distance,
-        37: df_frequency,
-        38: df_duration
+        30: df_distance,
+        31: df_frequency,
+        32: df_duration
     }
 
     formatting_rules = {
@@ -461,28 +464,60 @@ def download_template():
         mimetype="application/vnd.ms-excel.sheet.macroEnabled.12"
     )
 
+# @app.route("/generate", methods=["POST"])
+# def generate():
+#     file = request.files.get("xlsm")
+#     if not file or file.filename == "":
+#         flash("Please choose an .xlsm or .xlsx file.")
+#         return redirect(url_for("index"))
+
+#     ext = os.path.splitext(file.filename)[1].lower()
+#     if ext not in ALLOWED_EXCEL_EXTS:
+#         flash("Unsupported file type. Upload .xlsm or .xlsx.")
+#         return redirect(url_for("index"))
+
+#     with tempfile.TemporaryDirectory() as tmpdir:
+#         safe_name = secure_filename(file.filename)
+#         xlsm_path = os.path.join(tmpdir, safe_name)
+#         file.save(xlsm_path)
+
+#         try:
+#             output = build_presentation(xlsm_path, PPT_TEMPLATE_PATH)
+#         except Exception as e:
+#             flash(f"Error generating PPT: {e}")
+#             return redirect(url_for("index"))
+
+#     ts = datetime.now().strftime("%Y-%m-%d_%H-%M")
+#     return send_file(
+#         output,
+#         as_attachment=True,
+#         download_name=f"TT_report_{ts}.pptx",
+#         mimetype="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+#     )
+
 @app.route("/generate", methods=["POST"])
 def generate():
     file = request.files.get("xlsm")
-    if not file or file.filename == "":
-        flash("Please choose an .xlsm or .xlsx file.")
-        return redirect(url_for("index"))
+    if not file:
+        return "No file uploaded", 400
 
     ext = os.path.splitext(file.filename)[1].lower()
-    if ext not in ALLOWED_EXCEL_EXTS:
-        flash("Unsupported file type. Upload .xlsm or .xlsx.")
-        return redirect(url_for("index"))
+    if ext not in {".xlsm", ".xlsx"}:
+        return "Invalid file type", 400
 
-    with tempfile.TemporaryDirectory() as tmpdir:
-        safe_name = secure_filename(file.filename)
-        xlsm_path = os.path.join(tmpdir, safe_name)
-        file.save(xlsm_path)
+    try:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = os.path.join(tmpdir, secure_filename(file.filename))
+            file.save(path)
+            output = build_presentation(path, PPT_TEMPLATE_PATH)
 
-        try:
-            output = build_presentation(xlsm_path, PPT_TEMPLATE_PATH)
-        except Exception as e:
-            flash(f"Error generating PPT: {e}")
-            return redirect(url_for("index"))
+    except Exception as e:
+        # 🔥 THIS prints full traceback to your terminal
+        import traceback
+        traceback.print_exc()
+
+        # 🔥 THIS shows the error message in your browser
+        return f"ERROR: {e}", 500
 
     ts = datetime.now().strftime("%Y-%m-%d_%H-%M")
     return send_file(
@@ -491,6 +526,7 @@ def generate():
         download_name=f"TT_report_{ts}.pptx",
         mimetype="application/vnd.openxmlformats-officedocument.presentationml.presentation",
     )
+
 
 # --------------- Run locally ---------------
 if __name__ == "__main__":
