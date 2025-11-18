@@ -11,6 +11,12 @@ from pptx import Presentation
 from pptx.util import Pt
 from pptx.dml.color import RGBColor
 from pptx.enum.text import PP_ALIGN
+from pptx.chart.data import CategoryChartData
+from pptx.enum.chart import XL_CHART_TYPE, XL_DATA_LABEL_POSITION, XL_TICK_MARK
+from pptx.util import Inches, Pt
+from pptx.dml.color import RGBColor
+
+
 
 # ---------------- Flask setup ----------------
 app = Flask(__name__)
@@ -220,6 +226,115 @@ HTML = """
 </html>
 
 """
+# Chart Replacement Data Logic
+from pptx.chart.data import CategoryChartData
+from pptx.enum.chart import XL_CHART_TYPE, XL_DATA_LABEL_POSITION, XL_TICK_MARK
+from pptx.util import Inches, Pt
+from pptx.dml.color import RGBColor
+import pandas as pd
+
+def update_mileage_chart(slide, df_mileage):
+    """
+    Horizontal bar chart in middle of slide using MileageDemo!Q4:Q26.
+    - No category labels
+    - No axis labels
+    - Data labels at end of each bar, black, size 9
+    - Bar color: red < 100, green > 100, grey = 100
+    """
+
+    # ---- 1) Slice the data from the DataFrame ----
+    start_row = 2      # Excel row 4 (0-based)
+    end_row   = 26     # Excel row 26 (exclusive)
+    col_q_index = 16   # column Q
+
+    cat_series = df_mileage.iloc[start_row:end_row, 0]
+    val_series = df_mileage.iloc[start_row:end_row, col_q_index]
+
+    # We don't care about category text; keep them blank
+    categories = ["" for _ in range(len(val_series))]
+
+    values = []
+    for v in val_series:
+        if pd.isna(v):
+            values.append(None)
+        else:
+            try:
+                values.append(round(float(v)))   # whole-number index
+            except (TypeError, ValueError):
+                values.append(None)
+
+    # ---- 2) Build chart data ----
+    chart_data = CategoryChartData()
+    chart_data.categories = categories
+    chart_data.add_series("Index", values)
+
+    # ---- 3) Position & size: make it taller ----
+    left = Inches(11.3)
+    top = Inches(2.392)
+    width = Inches(1.7)
+    height = Inches(5.735)   
+
+    graphic_frame = slide.shapes.add_chart(
+        XL_CHART_TYPE.BAR_CLUSTERED,
+        left, top, width, height,
+        chart_data
+    )
+    chart = graphic_frame.chart
+
+    # ---- Remove value axis line & labels ----
+    chart.has_title = False
+    val_axis = chart.value_axis
+    val_axis.major_tick_mark = XL_TICK_MARK.NONE
+    val_axis.minor_tick_mark = XL_TICK_MARK.NONE
+    val_axis.tick_labels.number_format_is_linked = False
+    val_axis.tick_labels.number_format = ";;;"  # hide numbers
+    # hide the axis line itself
+    val_axis.format.line.fill.background()
+    # hide gridlines if present
+    if val_axis.has_major_gridlines:
+        val_axis.major_gridlines.format.line.fill.background()
+
+    # ---- Remove category axis line & labels ----
+    cat_axis = chart.category_axis
+    cat_axis.major_tick_mark = XL_TICK_MARK.NONE
+    cat_axis.minor_tick_mark = XL_TICK_MARK.NONE
+    cat_axis.tick_labels.number_format_is_linked = False
+    cat_axis.tick_labels.number_format = ";;;"
+    cat_axis.format.line.fill.background()
+
+    # ---- 5) Data labels at end of each bar ----
+    plot = chart.plots[0]
+    series = plot.series[0]
+
+    plot.has_data_labels = True
+    data_labels = series.data_labels
+    data_labels.show_value = True
+    data_labels.position = XL_DATA_LABEL_POSITION.OUTSIDE_END  # right end of bar
+
+    # ---- 6) Color bars & style labels ----
+    for idx, point in enumerate(series.points):
+        v = values[idx]
+        if v is None:
+            continue
+
+        lbl = point.data_label
+        lbl.number_format = "0"         # no decimals
+        lbl.font.size = Pt(9)           # font size 9
+        lbl.font.color.rgb = RGBColor(0, 0, 0)  # black
+
+        fill = point.format.fill
+        fill.solid()
+
+        if v < 100:
+            fill.fore_color.rgb = RGBColor(220, 38, 38)   # red
+        elif v > 100:
+            fill.fore_color.rgb = RGBColor(22, 163, 74)   # green
+        else:
+            fill.fore_color.rgb = RGBColor(148, 163, 184) # grey
+
+    chart.has_legend = False
+
+
 # Logic 
 def build_presentation(xlsm_path: str, template_path: str) -> io.BytesIO:
     # Load template PPT
@@ -242,6 +357,8 @@ def build_presentation(xlsm_path: str, template_path: str) -> io.BytesIO:
     df_frequency = dfs["Frequency"]
     df_duration = dfs["Duration"]
     df_mileage = dfs["MileageDemo"]
+    #chart update
+    update_mileage_chart(prs.slides[10], df_mileage)
 
     variable_mapping = {
         "MTZIP1": df_zipcodes.iloc[0,11],
@@ -308,6 +425,9 @@ def build_presentation(xlsm_path: str, template_path: str) -> io.BytesIO:
         "MA144": f"{df_mileage.iloc[25, 2] * 100:.1f}%", "MB144": f"{df_mileage.iloc[25, 3] * 100:.1f}%", "MC144": f"{df_mileage.iloc[25, 4] * 100:.1f}%", "MD144": f"{df_mileage.iloc[25, 5] * 100:.1f}%",
         "MA145": f"{df_mileage.iloc[26, 2] * 100:.1f}%", "MB145": f"{df_mileage.iloc[26, 3] * 100:.1f}%", "MC145": f"{df_mileage.iloc[26, 4] * 100:.1f}%", "MD145": f"{df_mileage.iloc[26, 5] * 100:.1f}%"
     }
+
+   
+
 
     # Replace placeholders across shapes and tables
     for slide in prs.slides:
@@ -512,11 +632,9 @@ def generate():
             output = build_presentation(path, PPT_TEMPLATE_PATH)
 
     except Exception as e:
-        # 🔥 THIS prints full traceback to your terminal
         import traceback
         traceback.print_exc()
 
-        # 🔥 THIS shows the error message in your browser
         return f"ERROR: {e}", 500
 
     ts = datetime.now().strftime("%Y-%m-%d_%H-%M")
