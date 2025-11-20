@@ -2,11 +2,13 @@ import os
 import io
 import tempfile
 from datetime import datetime
+from copy import deepcopy
 
 from flask import Flask, render_template_string, request, send_file, redirect, url_for, flash
 from werkzeug.utils import secure_filename
 
 import pandas as pd
+import numbers
 from pptx import Presentation
 from pptx.util import Pt
 from pptx.dml.color import RGBColor
@@ -335,6 +337,246 @@ def update_mileage_chart(slide, df_mileage):
     chart.has_legend = False
 
 
+def update_ethnicities_chart(slide, df_drawdemos):
+    """
+    Horizontal bar chart for ETHNIC MAKEUP using DrawDemo!W24:X28.
+    - Categories from column W, values from column X (expected decimals rendered as %)
+    - Dark-blue bars, value labels outside end
+    """
+    start_row = 22  # Excel row 24 (0-based)
+    end_row = 27    # Excel row 28 (exclusive)
+    cat_col = 22    # column W
+    val_col = 23    # column X
+
+    categories = []
+    values = []
+    for cat, val in zip(
+        df_drawdemos.iloc[start_row:end_row, cat_col],
+        df_drawdemos.iloc[start_row:end_row, val_col],
+    ):
+        categories.append("" if pd.isna(cat) else str(cat))
+        try:
+            values.append(None if pd.isna(val) else float(val))
+        except Exception:
+            values.append(None)
+
+    chart_data = CategoryChartData()
+    chart_data.categories = categories
+    chart_data.add_series("Ethnic Makeup", values)
+
+    # Placement: lower-left area of slide 8 (per reference positioning)
+    left = Inches(0.14)
+    top = Inches(6.19)
+    width = Inches(3.8)   # slightly wider bars
+    height = Inches(2.1)
+
+    graphic_frame = slide.shapes.add_chart(
+        XL_CHART_TYPE.BAR_CLUSTERED,
+        left, top, width, height,
+        chart_data
+    )
+    chart = graphic_frame.chart
+    chart.has_legend = False
+    chart.has_title = False
+
+    # Minimal axes
+    val_axis = chart.value_axis
+    val_axis.major_tick_mark = XL_TICK_MARK.NONE
+    val_axis.minor_tick_mark = XL_TICK_MARK.NONE
+    val_axis.format.line.fill.background()
+    val_axis.tick_labels.number_format_is_linked = False
+    val_axis.tick_labels.number_format = ";;;"
+    if val_axis.has_major_gridlines:
+        val_axis.major_gridlines.format.line.fill.background()
+
+    cat_axis = chart.category_axis
+    cat_axis.major_tick_mark = XL_TICK_MARK.NONE
+    cat_axis.minor_tick_mark = XL_TICK_MARK.NONE
+    cat_axis.format.line.fill.background()
+    cat_axis.tick_labels.font.size = Pt(11)
+    cat_axis.tick_labels.font.color.rgb = RGBColor(0, 0, 0)
+
+    plot = chart.plots[0]
+    series = plot.series[0]
+    series.gap_width = 50  # tighter spacing between bars
+    plot.has_data_labels = True
+    data_labels = series.data_labels
+    data_labels.show_value = True
+    data_labels.position = XL_DATA_LABEL_POSITION.OUTSIDE_END
+    data_labels.number_format = "0%"
+    data_labels.font.name = "Roboto"
+    data_labels.font.size = Pt(11)
+    data_labels.font.color.rgb = RGBColor(0, 0, 0)
+
+    dark_blue = RGBColor(21, 57, 96)
+    for point in series.points:
+        fill = point.format.fill
+        fill.solid()
+        fill.fore_color.rgb = dark_blue
+
+
+def update_frequency_chart(slide, df_frequency):
+    """
+    Horizontal bar chart for Frequency (Frequency!J22:K31) placed on slide 19.
+    - Categories from column J, values from column K (one decimal)
+    - Dark blue bars, labels outside end
+    """
+    start_row =1  # Excel row 22 (0-based)
+    end_row = 12    # Excel row 31 (exclusive)
+    cat_col = 13     # column J
+    val_col = 14    # column K
+
+    categories = []
+    values = []
+    for cat, val in zip(
+        df_frequency.iloc[start_row:end_row, cat_col],
+        df_frequency.iloc[start_row:end_row, val_col],
+    ):
+        categories.append("" if pd.isna(cat) else str(cat))
+        try:
+            values.append(None if pd.isna(val) else float(val))
+        except Exception:
+            values.append(None)
+
+    chart_data = CategoryChartData()
+    chart_data.categories = categories
+    chart_data.add_series("Frequency", values)
+
+    left = Inches(7)
+    top = Inches(2.31)
+    width = Inches(5.4)
+    height = Inches(5.3)
+
+    graphic_frame = slide.shapes.add_chart(
+        XL_CHART_TYPE.BAR_CLUSTERED,
+        left, top, width, height,
+        chart_data
+    )
+    chart = graphic_frame.chart
+    chart.has_legend = False
+    chart.has_title = False
+
+    val_axis = chart.value_axis
+    val_axis.major_tick_mark = XL_TICK_MARK.NONE
+    val_axis.minor_tick_mark = XL_TICK_MARK.NONE
+    val_axis.format.line.fill.background()
+    val_axis.tick_labels.number_format_is_linked = False
+    val_axis.tick_labels.number_format = ";;;"
+    if val_axis.has_major_gridlines:
+        val_axis.major_gridlines.format.line.fill.background()
+
+    max_val = max((v for v in values if v is not None), default=0)
+    val_axis.minimum_scale = 0
+    val_axis.maximum_scale = max_val * 1.1 if max_val > 0 else 1
+
+    cat_axis = chart.category_axis
+    cat_axis.major_tick_mark = XL_TICK_MARK.NONE
+    cat_axis.minor_tick_mark = XL_TICK_MARK.NONE
+    cat_axis.format.line.fill.background()
+    cat_axis.tick_labels.font.name = "Roboto"
+    cat_axis.tick_labels.font.size = Pt(9)
+    cat_axis.tick_labels.font.color.rgb = RGBColor(0, 0, 0)
+
+    plot = chart.plots[0]
+    series = plot.series[0]
+    series.gap_width = 80
+    plot.has_data_labels = True
+    data_labels = series.data_labels
+    data_labels.show_value = True
+    data_labels.position = XL_DATA_LABEL_POSITION.OUTSIDE_END
+    data_labels.number_format = "0.0"
+    data_labels.font.name = "Roboto"
+    data_labels.font.size = Pt(9)
+    data_labels.font.color.rgb = RGBColor(0, 0, 0)
+
+    dark_blue = RGBColor(21, 57, 96)
+    for idx, point in enumerate(series.points):
+        fill = point.format.fill
+        fill.solid()
+        fill.fore_color.rgb = dark_blue
+
+# Duration chart
+def update_duration_chart(slide, df_duration):
+    """
+    Horizontal bar chart for Duration using Duration!J22:K31.
+    - Categories from column J, values from column K (one decimal)
+    - Dark blue bars, labels outside end
+    """
+    start_row =1  # Excel row 22 (0-based)
+    end_row = 12    # Excel row 31 (exclusive)
+    cat_col = 13     # column J
+    val_col = 14    # column K
+
+    categories = []
+    values = []
+    for cat, val in zip(
+        df_duration.iloc[start_row:end_row, cat_col],
+        df_duration.iloc[start_row:end_row, val_col],
+    ):
+        categories.append("" if pd.isna(cat) else str(cat))
+        try:
+            values.append(None if pd.isna(val) else float(val))
+        except Exception:
+            values.append(None)
+
+    chart_data = CategoryChartData()
+    chart_data.categories = categories
+    chart_data.add_series("Duration", values)
+
+    left = Inches(0.81)
+    top = Inches(2.31)
+    width = Inches(5.4)
+    height = Inches(5.3)
+
+    graphic_frame = slide.shapes.add_chart(
+        XL_CHART_TYPE.BAR_CLUSTERED,
+        left, top, width, height,
+        chart_data
+    )
+    chart = graphic_frame.chart
+    chart.has_legend = False
+    chart.has_title = False
+
+    val_axis = chart.value_axis
+    val_axis.major_tick_mark = XL_TICK_MARK.NONE
+    val_axis.minor_tick_mark = XL_TICK_MARK.NONE
+    val_axis.format.line.fill.background()
+    val_axis.tick_labels.number_format_is_linked = False
+    val_axis.tick_labels.number_format = ";;;"
+    if val_axis.has_major_gridlines:
+        val_axis.major_gridlines.format.line.fill.background()
+
+    max_val = max((v for v in values if v is not None), default=0)
+    val_axis.minimum_scale = 0
+    val_axis.maximum_scale = max_val * 1.1 if max_val > 0 else 1
+
+    cat_axis = chart.category_axis
+    cat_axis.major_tick_mark = XL_TICK_MARK.NONE
+    cat_axis.minor_tick_mark = XL_TICK_MARK.NONE
+    cat_axis.format.line.fill.background()
+    cat_axis.tick_labels.font.name = "Roboto"
+    cat_axis.tick_labels.font.size = Pt(9)
+    cat_axis.tick_labels.font.color.rgb = RGBColor(0, 0, 0)
+
+    plot = chart.plots[0]
+    series = plot.series[0]
+    series.gap_width = 80
+    plot.has_data_labels = True
+    data_labels = series.data_labels
+    data_labels.show_value = True
+    data_labels.position = XL_DATA_LABEL_POSITION.OUTSIDE_END
+    data_labels.number_format = "0.0"
+    data_labels.font.name = "Roboto"
+    data_labels.font.size = Pt(9)
+    data_labels.font.color.rgb = RGBColor(0, 0, 0)
+
+    dark_blue = RGBColor(21, 57, 96)
+    for point in series.points:
+        fill = point.format.fill
+        fill.solid()
+        fill.fore_color.rgb = dark_blue
+
+
 # Logic 
 def build_presentation(xlsm_path: str, template_path: str) -> io.BytesIO:
     # Load template PPT
@@ -359,6 +601,9 @@ def build_presentation(xlsm_path: str, template_path: str) -> io.BytesIO:
     df_mileage = dfs["MileageDemo"]
     #chart update
     update_mileage_chart(prs.slides[10], df_mileage)
+    update_ethnicities_chart(prs.slides[7], df_drawdemos)
+    update_frequency_chart(prs.slides[18], df_frequency)
+    update_duration_chart(prs.slides[18],df_duration)
 
     variable_mapping = {
         "MTZIP1": df_zipcodes.iloc[0,11],
@@ -393,6 +638,7 @@ def build_presentation(xlsm_path: str, template_path: str) -> io.BytesIO:
         "ZIPANALYSIS15": df_zipcodes.iloc[0, 14],
         "DDANALYSIS12": df_drawdemos.iloc[0, 18],
         "CMPANALYSIS10": df_sheet2.iloc[0, 9],
+        "XXXXX": df_leasing.iloc[25, 0],
         "MILANALYSIS11": df_mileage.iloc[0, 3],
         "DURANALYSIS39": df_leasing.iloc[32, 1],
         "FREQANALYSIS38": df_leasing.iloc[33, 1],
@@ -467,14 +713,14 @@ def build_presentation(xlsm_path: str, template_path: str) -> io.BytesIO:
             "percent_columns": [3, 5, 6],
             "currency_columns": [2],
             "thousands_columns": [1]
-        },
-        "ZipCodes": {
-            "percent_columns": [4, 5, 8],
-            "currency_columns": [9],
-            "thousands_columns": [6, 7]
-        },
-        "DrawDemo": {
-            "percent_rows": [
+          },
+          "ZipCodes": {
+              "percent_columns": [4, 5, 8],
+              "currency_columns": [9],
+              "thousands_columns": [6, 7]
+          },
+          "DrawDemo": {
+              "percent_rows": [
                 "18-24", "25-34", "35-44", "45-54", "55-64", "65+",
                 "Less than $50,000", "$50,000-$74,999", "$75,000-$99,999",
                 "$100,000-$149,999", "$150,000 or more", "CHILDREN IN HOUSEHOLD",
@@ -482,21 +728,35 @@ def build_presentation(xlsm_path: str, template_path: str) -> io.BytesIO:
                 "Caucasian/White", "African-American/Black", "Hispanic/Latino",
                 "Asian", "Other"
             ],
-            "currency_rows": ["HOUSEHOLD INCOME", "Average HH Income"]
-        },
-        "DistanceTravelled": {
-            "percent_columns": [1, 2, 3, 4, 5],
-            "decimal_columns": [6, 7]
-        },
-        "Frequency": {
-            "percent_columns": [1, 2, 3],
-            "decimal_columns": [4]
-        },
-        "Duration": {
-            "percent_columns": [1, 2, 3, 4],
-            "decimal_columns": [5]
-        }
-    }
+              "currency_rows": ["HOUSEHOLD INCOME", "Average HH Income"]
+          },
+          "DistanceTravelled": {
+              "percent_columns": [1, 2, 3, 4, 5],
+              "decimal_columns": [6, 7]
+          },
+          "Frequency": {
+              "percent_columns": [1, 2, 3],
+              "decimal_columns": [4]
+          },
+          "Duration": {
+              "percent_columns": [1, 2, 3, 4],
+              "decimal_columns": [5]
+          },
+          "CompetitiveMarketPosition": {
+              "percent_columns": [3, 5, 6],
+              "currency_columns": [2],
+              "thousands_columns": [1],
+              "decimal_columns": [4]
+          }
+      }
+
+    def _append_row_clone(tbl):
+        """Clone the last row when python-pptx doesn't expose add_row()."""
+        if len(tbl.rows) == 0:
+            return
+        last_row = tbl.rows[len(tbl.rows) - 1]
+        clone_tr = deepcopy(last_row._tr)
+        tbl._tbl.append(clone_tr)
 
     for slide_number, df_data in slides_to_update.items():
         slide = prs.slides[slide_number]
@@ -507,28 +767,76 @@ def build_presentation(xlsm_path: str, template_path: str) -> io.BytesIO:
             continue
 
         rows, cols = df_data.shape
+        drawdemo_section_rows = {"AGE", "HOUSEHOLD INCOME", "EDUCATION", "ETHNICITY"}
+
+        # Ensure table has enough rows for incoming data (header + data rows)
+        try:
+            needed_rows = rows + 1  # include header
+            while len(table.rows) < needed_rows:
+                try:
+                    table.rows.add_row()
+                except Exception:
+                    _append_row_clone(table)
+        except Exception:
+            pass  # if cloning unsupported, we'll guard per-row below
 
         # Header styling where needed
-        if sheet_name in ("DrawDemo", "DistanceTravelled", "Frequency", "Duration", "CompetitiveMarketPosition"):
+        if sheet_name in ("DrawDemo", "DistanceTravelled", "Frequency", "Duration", "CompetitiveMarketPosition", "ZipCodes"):
             for col_index, col_name in enumerate(df_data.columns):
+                if sheet_name == "DrawDemo" and col_index == 0:
+                    continue  # keep first column header from template formatting
                 if col_index < len(table.columns):
                     cell = table.cell(0, col_index)
                     cell.text = str(col_name)
                     for paragraph in cell.text_frame.paragraphs:
-                        paragraph.alignment = PP_ALIGN.CENTER if col_index == 0 else PP_ALIGN.LEFT
+                        if sheet_name == "ZipCodes":
+                            paragraph.alignment = PP_ALIGN.CENTER
+                        elif sheet_name == "CompetitiveMarketPosition":
+                            paragraph.alignment = PP_ALIGN.CENTER
+                        else:
+                            paragraph.alignment = PP_ALIGN.CENTER if col_index == 0 else PP_ALIGN.LEFT
                         for run in paragraph.runs:
                             run.font.name = "Roboto"
                             run.font.size = Pt(9)
-                            run.font.color.rgb = RGBColor(255, 255, 255)
-                            run.font.bold = True
+                            # ZipCodes header text should be white/bold; others remain as before
+                            if sheet_name == "ZipCodes":
+                                run.font.color.rgb = RGBColor(255, 255, 255)
+                                run.font.bold = True
+                                paragraph.alignment = PP_ALIGN.CENTER
+                            else:
+                                run.font.color.rgb = RGBColor(255, 255, 255)
+                                run.font.bold = True
 
-        for row_index in range(min(rows, len(table.rows) - 1)):
+        max_data_rows = rows  # we will ensure rows exist as we go
+        for row_index in range(max_data_rows):
+            # make sure target row exists (header offset of +1)
+            try:
+                while row_index + 1 >= len(table.rows):
+                    try:
+                        table.rows.add_row()
+                    except Exception:
+                        _append_row_clone(table)
+            except Exception:
+                pass
+            # if still not enough rows, stop to avoid index errors
+            if row_index + 1 >= len(table.rows):
+                break
+
             for col_index in range(min(cols, len(table.columns))):
                 value = df_data.iloc[row_index, col_index]
                 value = "" if pd.isna(value) else value
                 row_label = str(df_data.iloc[row_index, 0])
+                normalized_label = row_label.strip().upper()
 
-                if isinstance(value, (int, float)):
+                if sheet_name == "DrawDemo" and normalized_label in drawdemo_section_rows:
+                    # Leave section header rows untouched (preserve template formatting/height)
+                    try:
+                        table.rows[row_index + 1].height = Inches(0.17)
+                    except Exception:
+                        pass
+                    continue
+
+                if isinstance(value, numbers.Number):
                     if sheet_name == "DrawDemo":
                         if any(keyword in row_label for keyword in rules.get("percent_rows", [])):
                             formatted_value = f"{round(value * 100, 1)}%"
@@ -550,17 +858,132 @@ def build_presentation(xlsm_path: str, template_path: str) -> io.BytesIO:
                 else:
                     formatted_value = str(value)
 
+                if sheet_name == "ZipCodes" and row_index == max_data_rows - 1:
+                    # Last row formatting for Zip table
+                    if col_index == 1:
+                        formatted_value = "AVERAGE/TOTALS"
+                    if col_index == 2:
+                        formatted_value = ""
+                    if col_index == 3:
+                        try:
+                            formatted_value = f"{float(value):.1f}"
+                        except Exception:
+                            pass
+                    try:
+                        table.rows[row_index + 1].height = Inches(0.17)
+                    except Exception:
+                        pass
+
+                if sheet_name == "DrawDemo" and col_index == 0:
+                    continue  # preserve first column labels/formatting in template
                 cell = table.cell(row_index + 1, col_index)
+                # avoid wrapping which can increase row height
+                cell.text_frame.word_wrap = False
+                cell.text_frame.auto_size = None
+                cell.text_frame.margin_top = 0
+                cell.text_frame.margin_bottom = 0
+                cell.text_frame.margin_left = 0
+                cell.text_frame.margin_right = 0
                 cell.text = formatted_value
                 for paragraph in cell.text_frame.paragraphs:
+                    if sheet_name == "ZipCodes":
+                        paragraph.alignment = PP_ALIGN.RIGHT if col_index >= 3 else PP_ALIGN.LEFT
+                    if sheet_name == "CompetitiveMarketPosition":
+                        paragraph.alignment = PP_ALIGN.RIGHT if col_index >= 3 else PP_ALIGN.LEFT
+                    paragraph.space_before = Pt(0)
+                    paragraph.space_after = Pt(0)
+                    paragraph.line_spacing = 1.0
                     for run in paragraph.runs:
                         run.font.name = "Roboto"
                         run.font.size = Pt(9)
+                        if sheet_name == "ZipCodes" and row_index == max_data_rows - 1:
+                            run.font.bold = True
+                            paragraph.space_before = Pt(0)
+                            paragraph.space_after = Pt(0)
+                            try:
+                                paragraph.line_spacing = 1.0
+                            except Exception:
+                                pass
                         if sheet_name in ("DistanceTravelled", "Frequency", "Duration") and row_index == 0:
                             run.font.color.rgb = RGBColor(255, 255, 255)
                             run.font.bold = True
                         else:
                             run.font.color.rgb = RGBColor(0, 0, 0)
+        if sheet_name == "DrawDemo":
+            target_height = Inches(0.17)
+            for row in table.rows:
+                row.height = target_height
+        if sheet_name == "ZipCodes":
+            target_height = Inches(0.17)
+            for row in table.rows:
+                row.height = target_height
+                try:
+                    row._tr.set("h", str(int(target_height)))
+                    row._tr.set("hRule", "exact")
+                except Exception:
+                    pass
+            try:
+                last_idx = min(max_data_rows, len(table.rows) - 1)
+                table.rows[last_idx].height = target_height
+                table.rows[last_idx]._tr.set("h", str(int(target_height)))
+                table.rows[last_idx]._tr.set("hRule", "exact")
+            except Exception:
+                pass
+        def _apply_banding(table, avg_keywords):
+            """Apply alternating light-blue/white rows and gray average row; preserve template header rows."""
+            light_blue = RGBColor(0xDD, 0xEB, 0xF7)
+            gray = RGBColor(0xD9, 0xD9, 0xD9)
+            black = RGBColor(0x00, 0x00, 0x00)
+            avg_row_idx = None
+            for r_idx in range(1, len(table.rows)):
+                label = table.cell(r_idx, 0).text.strip().lower()
+                if any(k in label for k in avg_keywords):
+                    avg_row_idx = r_idx
+                    break
+            if avg_row_idx is None:
+                avg_row_idx = len(table.rows) - 1
+
+            # Row indices:
+            # 0 = header, 1 = sub-header (keep template dark blue), 2 = first data row (force white)
+            # start banding from row 3 (index 3) downward.
+            first_data_row = 2
+            for c_idx in range(len(table.columns)):
+                cell = table.cell(first_data_row, c_idx)
+                cell.fill.background()
+                for paragraph in cell.text_frame.paragraphs:
+                    for run in paragraph.runs:
+                        run.font.color.rgb = black
+                        run.font.bold = False
+
+            start_band_row = 3
+            for offset, r_idx in enumerate(range(start_band_row, avg_row_idx)):
+                for c_idx in range(len(table.columns)):
+                    cell = table.cell(r_idx, c_idx)
+                    if offset % 2 == 0:
+                        cell.fill.solid()
+                        cell.fill.fore_color.rgb = light_blue
+                    else:
+                        cell.fill.background()
+                    for paragraph in cell.text_frame.paragraphs:
+                        for run in paragraph.runs:
+                            run.font.color.rgb = black
+                            run.font.bold = False
+
+            # average row to gray
+            for c_idx in range(len(table.columns)):
+                cell = table.cell(avg_row_idx, c_idx)
+                cell.fill.solid()
+                cell.fill.fore_color.rgb = gray
+                for paragraph in cell.text_frame.paragraphs:
+                    for run in paragraph.runs:
+                        run.font.bold = True
+                        run.font.color.rgb = black
+
+        if sheet_name in ("CompetitiveMarketPosition", "DistanceTravelled", "Frequency", "Duration"):
+            _apply_banding(
+                table,
+                avg_keywords=["average of tested locations", "average/totals"]
+            )
 
     # Write PPT to memory buffer and return
     output = io.BytesIO()
