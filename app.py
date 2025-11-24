@@ -27,6 +27,7 @@ app.secret_key = os.environ.get("SECRET_KEY", "dev-key")
 # PPT Template on file directory
 PPT_TEMPLATE_PATH = os.path.join(os.path.dirname(__file__), "TT_report.pptx")
 ALLOWED_EXCEL_EXTS = {".xlsm", ".xlsx"}
+SHAREPOINT_TEMPLATE_URL = "https://aro36579709.sharepoint.com/:x:/s/ABResources/IQABBnRPEWwVTpBpMKocuf2YAYBaja-jjAP9g_mXGrik1zg?e=mU63ZK"
 
 HTML = """
 <!doctype html>
@@ -124,10 +125,10 @@ HTML = """
     <div class="card" style="margin-bottom:16px;">
       <h2>Step 1: Download Template</h2>
       <p class="sub">
-        Download the <strong>TruTrade Executive Report Worksheet (.xlsm)</strong>. Paste your TruTrade datasets into the template and the built-in macros will automatically analyze each tab.<br>
+        Access the <strong>TruTrade Executive Report Worksheet (.xlsm)</strong> from SharePoint. Paste your TruTrade datasets into the template and the built-in macros will automatically analyze each tab.<br>
         <em>Note:</em> after you load each dataset, allow a short processing time while the template finishes its analysis.
       </p>
-      <a class="btn btn-primary" href="{{ url_for('download_template') }}">Download .xlsm Template</a>
+      <a class="btn btn-primary" href="{{ url_for('download_template') }}" target="_blank" rel="noopener">Open Template on SharePoint</a>
     </div>
 
     <!-- Step 2: Upload & Generate -->
@@ -996,16 +997,14 @@ def build_presentation(xlsm_path: str, template_path: str) -> io.BytesIO:
 def index():
     if not os.path.exists(PPT_TEMPLATE_PATH):
         flash("Template not found: put TT_report.pptx beside app.py")
-    return render_template_string(HTML, template_name=os.path.basename(PPT_TEMPLATE_PATH))
+    return render_template_string(
+        HTML,
+        template_name=os.path.basename(PPT_TEMPLATE_PATH),
+    )
 
 @app.route("/download-template")
 def download_template():
-    return send_file(
-        "TT_worksheet.xlsm",
-        as_attachment=True,
-        download_name="TT_worksheet.xlsm",
-        mimetype="application/vnd.ms-excel.sheet.macroEnabled.12"
-    )
+    return redirect(SHAREPOINT_TEMPLATE_URL)
 
 # @app.route("/generate", methods=["POST"])
 # def generate():
