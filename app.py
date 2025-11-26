@@ -27,7 +27,7 @@ app.secret_key = os.environ.get("SECRET_KEY", "dev-key")
 # PPT Template on file directory
 PPT_TEMPLATE_PATH = os.path.join(os.path.dirname(__file__), "TT_report.pptx")
 ALLOWED_EXCEL_EXTS = {".xlsm", ".xlsx"}
-SHAREPOINT_TEMPLATE_URL = "https://aro36579709.sharepoint.com/:x:/s/ABResources/IQABBnRPEWwVTpBpMKocuf2YAYBaja-jjAP9g_mXGrik1zg?e=mU63ZK"
+SHAREPOINT_TEMPLATE_URL = "https://aro36579709.sharepoint.com/:x:/s/ABResources/IQCj5Ih6CsWDSL1vFuuGeyy5AYo0yCTvekxuIjFJrEkA0EA?e=RYNca1"
 
 HTML = """
 <!doctype html>
