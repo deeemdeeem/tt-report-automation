@@ -14,7 +14,7 @@ from pptx.util import Pt
 from pptx.dml.color import RGBColor
 from pptx.enum.text import PP_ALIGN
 from pptx.chart.data import CategoryChartData
-from pptx.enum.chart import XL_CHART_TYPE, XL_DATA_LABEL_POSITION, XL_TICK_MARK
+from pptx.enum.chart import XL_CHART_TYPE, XL_DATA_LABEL_POSITION, XL_TICK_MARK, XL_LEGEND_POSITION
 from pptx.util import Inches, Pt
 from pptx.dml.color import RGBColor
 
@@ -578,6 +578,126 @@ def update_duration_chart(slide, df_duration):
         fill.fore_color.rgb = dark_blue
 
 
+def update_yoy_ethnic_chart(slide, df_yoy):
+    """
+    Clustered column chart for YOY ethnic/racial composition using YOY Change!H1:J6.
+    - Categories from column H, prior/current series from columns I and J
+    - Percent labels outside end, legend shown
+    """
+    start_row = 0   # Excel row 2 when first row is header
+    end_row = 5     # Excel row 6 (exclusive)
+    cat_col = 7     # column H
+    prev_col = 8    # column I
+    curr_col = 9    # column J
+
+    def _to_float(val):
+        if pd.isna(val):
+            return None
+        try:
+            return float(val)
+        except (TypeError, ValueError):
+            return None
+
+    categories = []
+    prev_values = []
+    curr_values = []
+    for cat, prev, curr in zip(
+        df_yoy.iloc[start_row:end_row, cat_col],
+        df_yoy.iloc[start_row:end_row, prev_col],
+        df_yoy.iloc[start_row:end_row, curr_col],
+    ):
+        if pd.isna(cat):
+            continue
+        categories.append(str(cat))
+        prev_values.append(_to_float(prev))
+        curr_values.append(_to_float(curr))
+
+    chart_data = CategoryChartData()
+    chart_data.categories = categories
+
+    prev_name = df_yoy.columns[prev_col] if prev_col < len(df_yoy.columns) else "Previous"
+    curr_name = df_yoy.columns[curr_col] if curr_col < len(df_yoy.columns) else "Current"
+    def _clean_label(raw, fallback):
+        if pd.isna(raw):
+            return fallback
+        text = str(raw or fallback)
+        return text.replace(".1", "").strip() or fallback
+    prev_label = _clean_label(prev_name, "Prev Year")
+    curr_label = _clean_label(curr_name, "Present Year")
+    chart_data.add_series(prev_label, prev_values)
+    chart_data.add_series(curr_label, curr_values)
+
+    # Remove existing chart placeholder to avoid stacking
+    for shape in list(slide.shapes):
+        if getattr(shape, "has_chart", False):
+            slide.shapes._spTree.remove(shape._element)
+
+    left = Inches(6.9)
+    top = Inches(5.4)
+    width = Inches(7.2)
+    height = Inches(2.5)
+
+    graphic_frame = slide.shapes.add_chart(
+        XL_CHART_TYPE.COLUMN_CLUSTERED,
+        left, top, width, height,
+        chart_data
+    )
+    chart = graphic_frame.chart
+    chart.has_title = False
+    chart.has_legend = True
+
+    plot = chart.plots[0]
+    plot.overlap = -27  # match template spacing
+    plot.has_data_labels = True
+    for series in plot.series:
+        series.data_labels.show_value = True
+        series.data_labels.position = XL_DATA_LABEL_POSITION.OUTSIDE_END
+        series.data_labels.number_format = "0%"
+        series.data_labels.font.name = "Roboto"
+        series.data_labels.font.size = Pt(9)
+        series.data_labels.font.color.rgb = RGBColor(0, 0, 0)
+
+    val_axis = chart.value_axis
+    val_axis.tick_labels.number_format_is_linked = False
+    val_axis.tick_labels.number_format = ";;;"
+    val_axis.format.line.fill.background()
+    val_axis.major_tick_mark = XL_TICK_MARK.NONE
+    val_axis.minor_tick_mark = XL_TICK_MARK.NONE
+    val_axis.has_major_gridlines = False
+    val_axis.minimum_scale = 0
+    max_val = max((v for v in prev_values + curr_values if v is not None), default=0)
+    if max_val:
+        val_axis.maximum_scale = max_val * 1.1
+
+    cat_axis = chart.category_axis
+    cat_axis.major_tick_mark = XL_TICK_MARK.NONE
+    cat_axis.minor_tick_mark = XL_TICK_MARK.NONE
+    cat_axis.tick_labels.orientation = 0
+    cat_axis.tick_labels.font.name = "Roboto"
+    cat_axis.tick_labels.font.size = Pt(9)
+    cat_axis.tick_labels.font.color.rgb = RGBColor(0, 0, 0)
+
+    legend = chart.legend
+    legend.position = XL_LEGEND_POSITION.TOP
+    legend.include_in_layout = True
+    legend.font.name = "Roboto"
+    legend.font.size = Pt(9)
+    legend.font.color.rgb = RGBColor(0, 0, 0)
+
+    prev_color = RGBColor(148, 163, 184)  # neutral grey for prior year
+    curr_color = RGBColor(21, 57, 96)     # dark blue for current year
+    if len(plot.series) >= 1:
+        for point in plot.series[0].points:
+            fill = point.format.fill
+            fill.solid()
+            fill.fore_color.rgb = prev_color
+    if len(plot.series) >= 2:
+        for point in plot.series[1].points:
+            fill = point.format.fill
+            fill.solid()
+            fill.fore_color.rgb = curr_color
+
+
 # Logic 
 def build_presentation(xlsm_path: str, template_path: str) -> io.BytesIO:
     # Load template PPT
@@ -588,7 +708,7 @@ def build_presentation(xlsm_path: str, template_path: str) -> io.BytesIO:
         xlsm_path,
         sheet_name=[
             "LeasingInfographic", "CompetitiveMarketPosition", "ZipCodes",
-            "DrawDemo", "DistanceTravelled", "Frequency", "Duration", "MileageDemo"
+            "DrawDemo", "DistanceTravelled", "Frequency", "Duration", "MileageDemo","YOY Change"
         ],
         engine="openpyxl",
     )
@@ -600,11 +720,13 @@ def build_presentation(xlsm_path: str, template_path: str) -> io.BytesIO:
     df_frequency = dfs["Frequency"]
     df_duration = dfs["Duration"]
     df_mileage = dfs["MileageDemo"]
+    df_yoy = dfs["YOY Change"]
     #chart update
     update_mileage_chart(prs.slides[10], df_mileage)
     update_ethnicities_chart(prs.slides[7], df_drawdemos)
     update_frequency_chart(prs.slides[18], df_frequency)
     update_duration_chart(prs.slides[18],df_duration)
+    update_yoy_ethnic_chart(prs.slides[23], df_yoy)
 
     variable_mapping = {
         "MTZIP1": df_zipcodes.iloc[0,11],
@@ -644,6 +766,31 @@ def build_presentation(xlsm_path: str, template_path: str) -> io.BytesIO:
         "DURANALYSIS39": df_leasing.iloc[32, 1],
         "FREQANALYSIS38": df_leasing.iloc[33, 1],
         "DTANALYSIS37": df_distance.iloc[0, 12],
+        "YOYPrevPop": f"{df_yoy.iloc[0, 1]:,.0f}",
+        "YOYPrevM1": f"{df_yoy.iloc[1, 1] * 100:.1f}",
+        "YOYPrevM2": f"{df_yoy.iloc[2, 1] * 100:.1f}",
+        "YOYPrevM3": f"{df_yoy.iloc[3, 1] * 100:.1f}",
+        "YOYPrevM4": df_yoy.iloc[4, 1],
+        "YOYPrevM5": df_yoy.iloc[5, 1],
+        "YOYPrevM6": f"${df_yoy.iloc[6, 1]:,.0f}",
+        "YOYPrevM7": f"{df_yoy.iloc[7, 1] * 100:.1f}",
+        "YOYPrevM8": f"{df_yoy.iloc[8, 1] * 100:.1f}",
+        "YOYPrevM9": f"{df_yoy.iloc[9, 1] * 100:.1f}",
+
+
+        "YOYPresPop": f"{df_yoy.iloc[0, 2]:,.0f}",
+        "YOYPresM1": f"{df_yoy.iloc[1, 2] * 100:.1f}",
+        "YOYPresM2": f"{df_yoy.iloc[2, 2] * 100:.1f}",
+        "YOYPresM3": f"{df_yoy.iloc[3, 2] * 100:.1f}",
+        "YOYPresM4": df_yoy.iloc[4, 2],
+        "YOYPresM5": df_yoy.iloc[5, 2],
+        "YOYPresM6": f"${df_yoy.iloc[6, 2]:,.0f}",
+        "YOYPresM7": f"{df_yoy.iloc[7, 2] * 100:.1f}",
+        "YOYPresM8": f"{df_yoy.iloc[8, 2] * 100:.1f}",
+        "YOYPresM9": f"{df_yoy.iloc[9, 2] * 100:.1f}",
+        "YOYZIPPresSUM": f"{df_yoy.iloc[28,2]* 100:.1f}",
+        "YOYZIPPrevSUM": f"{df_yoy.iloc[28,1]* 100:.1f}",
+
 
         # Mileage Demos mapping
         "MA121": f"{df_mileage.iloc[2, 2]:,.0f}", "MB121": f"{df_mileage.iloc[2, 3]:,.0f}", "MC121": f"{df_mileage.iloc[2, 4]:,.0f}", "MD121": f"{df_mileage.iloc[2, 5]:,.0f}",
@@ -676,6 +823,12 @@ def build_presentation(xlsm_path: str, template_path: str) -> io.BytesIO:
    
 
 
+    highlight_keys = {
+        "YOYPrevPop", "YOYPresPop",
+        "YOYPrevM1", "YOYPrevM2", "YOYPrevM3", "YOYPrevM4", "YOYPrevM5", "YOYPrevM6", "YOYPrevM7", "YOYPrevM8", "YOYPrevM9",
+        "YOYPresM1", "YOYPresM2", "YOYPresM3", "YOYPresM4", "YOYPresM5", "YOYPresM6", "YOYPresM7", "YOYPresM8", "YOYPresM9",
+    }
+
     # Replace placeholders across shapes and tables
     for slide in prs.slides:
         for shape in slide.shapes:
@@ -685,6 +838,9 @@ def build_presentation(xlsm_path: str, template_path: str) -> io.BytesIO:
                         for key, value in variable_mapping.items():
                             if key in run.text:
                                 run.text = run.text.replace(key, str(value))
+                                if key in highlight_keys:
+                                    run.font.name = "Roboto"
+                                    run.font.size = Pt(18)
 
             if getattr(shape, "has_table", False):
                 for row in shape.table.rows:
@@ -696,7 +852,7 @@ def build_presentation(xlsm_path: str, template_path: str) -> io.BytesIO:
                                     paragraph.alignment = PP_ALIGN.CENTER
                                     for run in paragraph.runs:
                                         run.font.name = "Roboto"
-                                        run.font.size = Pt(9)
+                                        run.font.size = Pt(18) if key in highlight_keys else Pt(9)
                                         run.font.color.rgb = RGBColor(0, 0, 0)
 
     # Table copy/format rules
