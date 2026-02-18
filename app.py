@@ -721,6 +721,29 @@ def build_presentation(xlsm_path: str, template_path: str) -> io.BytesIO:
     df_duration = dfs["Duration"]
     df_mileage = dfs["MileageDemo"]
     df_yoy = dfs["YOY Change"]
+    def _format_decimal(val):
+        if pd.isna(val):
+            return ""
+        try:
+            return f"{float(val):.1f}"
+        except Exception:
+            return str(val)
+    avg_freq_value = _format_decimal(df_frequency.iloc[-1, -1]) if not df_frequency.empty else ""
+    avg_dur_value = _format_decimal(df_duration.iloc[-1, -1]) if not df_duration.empty else ""
+
+    # Trim empty rows for ZipCodes table rendering so we don't bloat the slide height
+    df_zipcodes_table = df_zipcodes.copy()
+    df_zipcodes_table.dropna(how="all", inplace=True)
+    if len(df_zipcodes_table.columns) > 0:
+        df_zipcodes_table.dropna(subset=[df_zipcodes_table.columns[0]], how="all", inplace=True)
+    df_zipcodes_table.reset_index(drop=True, inplace=True)
+
+    # Trim empty rows for DistanceTravelled to avoid trailing blank rows
+    df_distance_table = df_distance.copy()
+    df_distance_table.dropna(how="all", inplace=True)
+    if len(df_distance_table.columns) > 0:
+        df_distance_table.dropna(subset=[df_distance_table.columns[0]], how="all", inplace=True)
+    df_distance_table.reset_index(drop=True, inplace=True)
     #chart update
     update_mileage_chart(prs.slides[10], df_mileage)
     update_ethnicities_chart(prs.slides[7], df_drawdemos)
@@ -740,6 +763,10 @@ def build_presentation(xlsm_path: str, template_path: str) -> io.BytesIO:
         "MTZIP9": df_zipcodes.iloc[8,11],
         "MTZIP_10": df_zipcodes.iloc[9,11],
         "EXECANALYSIS5": df_leasing.iloc[36,1],
+        "XXXXX": df_leasing.iloc[26, 0],
+        "AVGFREQ10": avg_freq_value,
+        "AVGFREQ19": avg_freq_value,
+        "AVGDUR19": avg_dur_value,
         "VOANALYSIS13": df_leasing.iloc[34,1],
         "MTANALYSIS14": df_leasing.iloc[33,1],
         "VL10": f"{int(round(df_leasing.iloc[0, 0] * 100, 0))}%",
@@ -853,16 +880,20 @@ def build_presentation(xlsm_path: str, template_path: str) -> io.BytesIO:
                                     for run in paragraph.runs:
                                         run.font.name = "Roboto"
                                         run.font.size = Pt(18) if key in highlight_keys else Pt(9)
-                                        run.font.color.rgb = RGBColor(0, 0, 0)
+                                        if key == "XXXXX":
+                                            run.font.color.rgb = RGBColor(255, 255, 255)
+                                            run.font.bold = True
+                                        else:
+                                            run.font.color.rgb = RGBColor(0, 0, 0)
 
     # Table copy/format rules
     slides_to_update = {
-        9: df_sheet2,
-        11: df_drawdemos,
-        14: df_zipcodes,
-        30: df_distance,
-        31: df_frequency,
-        32: df_duration
+        9: ("CompetitiveMarketPosition", df_sheet2),
+        11: ("DrawDemo", df_drawdemos),
+        14: ("ZipCodes", df_zipcodes_table),
+        30: ("DistanceTravelled", df_distance),
+        31: ("Frequency", df_frequency),
+        32: ("Duration", df_duration)
     }
 
     formatting_rules = {
@@ -915,20 +946,28 @@ def build_presentation(xlsm_path: str, template_path: str) -> io.BytesIO:
         clone_tr = deepcopy(last_row._tr)
         tbl._tbl.append(clone_tr)
 
-    for slide_number, df_data in slides_to_update.items():
+    for slide_number, (sheet_name, df_data) in slides_to_update.items():
         slide = prs.slides[slide_number]
-        sheet_name = [name for name, df in dfs.items() if df.equals(df_data)][0]
         rules = formatting_rules.get(sheet_name, {})
         table = next((s.table for s in slide.shapes if getattr(s, "has_table", False)), None)
         if not table:
             continue
 
         rows, cols = df_data.shape
+        needed_rows = rows + 1  # include header
+
+        # Trim extra template rows for DistanceTravelled so we don't end up with blank tails
+        if sheet_name == "DistanceTravelled":
+            try:
+                while len(table.rows) > needed_rows:
+                    table._tbl.remove(table.rows[-1]._tr)
+            except Exception:
+                pass
+
         drawdemo_section_rows = {"AGE", "HOUSEHOLD INCOME", "EDUCATION", "ETHNICITY"}
 
         # Ensure table has enough rows for incoming data (header + data rows)
         try:
-            needed_rows = rows + 1  # include header
             while len(table.rows) < needed_rows:
                 try:
                     table.rows.add_row()
@@ -993,7 +1032,17 @@ def build_presentation(xlsm_path: str, template_path: str) -> io.BytesIO:
                         pass
                     continue
 
-                if isinstance(value, numbers.Number):
+                formatted_value = None
+                if sheet_name == "ZipCodes" and col_index == 0:
+                    # ZIP column: ensure no trailing .0 for numeric inputs
+                    if isinstance(value, numbers.Number):
+                        try:
+                            formatted_value = str(int(value))
+                        except Exception:
+                            formatted_value = str(value)
+                    else:
+                        formatted_value = str(value)
+                elif isinstance(value, numbers.Number):
                     if sheet_name == "DrawDemo":
                         if any(keyword in row_label for keyword in rules.get("percent_rows", [])):
                             formatted_value = f"{round(value * 100, 1)}%"
@@ -1017,6 +1066,8 @@ def build_presentation(xlsm_path: str, template_path: str) -> io.BytesIO:
 
                 if sheet_name == "ZipCodes" and row_index == max_data_rows - 1:
                     # Last row formatting for Zip table
+                    if col_index == 0:
+                        formatted_value = ""
                     if col_index == 1:
                         formatted_value = "AVERAGE/TOTALS"
                     if col_index == 2:
@@ -1043,16 +1094,22 @@ def build_presentation(xlsm_path: str, template_path: str) -> io.BytesIO:
                 cell.text_frame.margin_right = 0
                 cell.text = formatted_value
                 for paragraph in cell.text_frame.paragraphs:
+                    if not paragraph.runs:
+                        paragraph.add_run().text = ""
                     if sheet_name == "ZipCodes":
                         paragraph.alignment = PP_ALIGN.RIGHT if col_index >= 3 else PP_ALIGN.LEFT
                     if sheet_name == "CompetitiveMarketPosition":
                         paragraph.alignment = PP_ALIGN.RIGHT if col_index >= 3 else PP_ALIGN.LEFT
+                    if sheet_name in ("DistanceTravelled", "Frequency", "Duration"):
+                        paragraph.alignment = PP_ALIGN.LEFT if col_index == 0 else PP_ALIGN.RIGHT
                     paragraph.space_before = Pt(0)
                     paragraph.space_after = Pt(0)
                     paragraph.line_spacing = 1.0
                     for run in paragraph.runs:
                         run.font.name = "Roboto"
                         run.font.size = Pt(9)
+                        if sheet_name == "CompetitiveMarketPosition" and row_index == 0:
+                            run.font.bold = True
                         if sheet_name == "ZipCodes" and row_index == max_data_rows - 1:
                             run.font.bold = True
                             paragraph.space_before = Pt(0)
@@ -1061,9 +1118,17 @@ def build_presentation(xlsm_path: str, template_path: str) -> io.BytesIO:
                                 paragraph.line_spacing = 1.0
                             except Exception:
                                 pass
-                        if sheet_name in ("DistanceTravelled", "Frequency", "Duration") and row_index == 0:
-                            run.font.color.rgb = RGBColor(255, 255, 255)
-                            run.font.bold = True
+                        if sheet_name in ("DistanceTravelled", "Frequency", "Duration"):
+                            if row_index == 0:
+                                # first data row (immediately under headers) bold white to match header row style
+                                run.font.bold = True
+                                run.font.color.rgb = RGBColor(255, 255, 255)
+                            elif row_index == 1:
+                                # second data row (client location) bold black
+                                run.font.bold = True
+                                run.font.color.rgb = RGBColor(0, 0, 0)
+                            else:
+                                run.font.color.rgb = RGBColor(0, 0, 0)
                         else:
                             run.font.color.rgb = RGBColor(0, 0, 0)
         if sheet_name == "DrawDemo":
@@ -1071,37 +1136,45 @@ def build_presentation(xlsm_path: str, template_path: str) -> io.BytesIO:
             for row in table.rows:
                 row.height = target_height
         if sheet_name == "ZipCodes":
-            target_height = Inches(0.17)
+            # Keep total table height near 5.7" regardless of row count
+            target_total_height = Inches(5.7)
+            row_count = max(len(table.rows), 1)
+            row_height = target_total_height // row_count or Inches(0.17)
             for row in table.rows:
-                row.height = target_height
+                row.height = row_height
                 try:
-                    row._tr.set("h", str(int(target_height)))
+                    row._tr.set("h", str(int(row_height)))
                     row._tr.set("hRule", "exact")
                 except Exception:
                     pass
-            try:
-                last_idx = min(max_data_rows, len(table.rows) - 1)
-                table.rows[last_idx].height = target_height
-                table.rows[last_idx]._tr.set("h", str(int(target_height)))
-                table.rows[last_idx]._tr.set("hRule", "exact")
-            except Exception:
-                pass
-        def _apply_banding(table, avg_keywords):
+            # Ensure all cells, including blank ones in the last row, stay at font size 9
+            for r_idx, row in enumerate(table.rows):
+                for cell in row.cells:
+                    for paragraph in cell.text_frame.paragraphs:
+                        if not paragraph.runs:
+                            paragraph.add_run().text = ""
+                        for run in paragraph.runs:
+                            run.font.name = "Roboto"
+                            run.font.size = Pt(9)
+        def _apply_banding(table, avg_keywords, sheet_name=None):
             """Apply alternating light-blue/white rows and gray average row; preserve template header rows."""
             light_blue = RGBColor(0xDD, 0xEB, 0xF7)
             gray = RGBColor(0xD9, 0xD9, 0xD9)
             black = RGBColor(0x00, 0x00, 0x00)
             avg_row_idx = None
-            for r_idx in range(1, len(table.rows)):
-                label = table.cell(r_idx, 0).text.strip().lower()
-                if any(k in label for k in avg_keywords):
-                    avg_row_idx = r_idx
-                    break
+            if sheet_name == "ZipCodes":
+                avg_row_idx = len(table.rows) - 1  # last row reserved for averages
+            else:
+                for r_idx in range(1, len(table.rows)):
+                    label = table.cell(r_idx, 0).text.strip().lower()
+                    if any(k in label for k in avg_keywords):
+                        avg_row_idx = r_idx
+                        break
             if avg_row_idx is None:
                 avg_row_idx = len(table.rows) - 1
 
             # Row indices:
-            # 0 = header, 1 = sub-header (keep template dark blue), 2 = first data row (force white)
+            # 0 = header, 1 = sub-header (keep template dark blue), 2 = first data row
             # start banding from row 3 (index 3) downward.
             first_data_row = 2
             for c_idx in range(len(table.columns)):
@@ -1110,7 +1183,11 @@ def build_presentation(xlsm_path: str, template_path: str) -> io.BytesIO:
                 for paragraph in cell.text_frame.paragraphs:
                     for run in paragraph.runs:
                         run.font.color.rgb = black
-                        run.font.bold = False
+                        # Preserve bold we set earlier for first data row on Distance/Frequency/Duration
+                        if sheet_name in ("DistanceTravelled", "Frequency", "Duration"):
+                            run.font.bold = True
+                        else:
+                            run.font.bold = False
 
             start_band_row = 3
             for offset, r_idx in enumerate(range(start_band_row, avg_row_idx)):
@@ -1124,7 +1201,13 @@ def build_presentation(xlsm_path: str, template_path: str) -> io.BytesIO:
                     for paragraph in cell.text_frame.paragraphs:
                         for run in paragraph.runs:
                             run.font.color.rgb = black
-                            run.font.bold = False
+                            if sheet_name in ("DistanceTravelled", "Frequency", "Duration"):
+                                if r_idx <= 3:
+                                    # keep existing bold on the first three data rows
+                                    continue
+                                run.font.bold = False
+                            else:
+                                run.font.bold = False
 
             # average row to gray
             for c_idx in range(len(table.columns)):
@@ -1136,10 +1219,11 @@ def build_presentation(xlsm_path: str, template_path: str) -> io.BytesIO:
                         run.font.bold = True
                         run.font.color.rgb = black
 
-        if sheet_name in ("CompetitiveMarketPosition", "DistanceTravelled", "Frequency", "Duration"):
+        if sheet_name in ("CompetitiveMarketPosition", "DistanceTravelled", "Frequency", "Duration", "ZipCodes"):
             _apply_banding(
                 table,
-                avg_keywords=["average of tested locations", "average/totals"]
+                avg_keywords=["average of tested locations", "average/totals"],
+                sheet_name=sheet_name
             )
 
     # Write PPT to memory buffer and return
