@@ -612,6 +612,18 @@ def update_yoy_ethnic_chart(slide, df_yoy):
         prev_values.append(_to_float(prev))
         curr_values.append(_to_float(curr))
 
+    def _sort_value(item):
+        values = [v for v in (item[1], item[2]) if v is not None]
+        return max(values) if values else -1
+
+    sorted_rows = sorted(
+        zip(categories, prev_values, curr_values),
+        key=_sort_value,
+        reverse=True,
+    )
+    if sorted_rows:
+        categories, prev_values, curr_values = map(list, zip(*sorted_rows))
+
     chart_data = CategoryChartData()
     chart_data.categories = categories
 
@@ -687,11 +699,15 @@ def update_yoy_ethnic_chart(slide, df_yoy):
     prev_color = RGBColor(148, 163, 184)  # neutral grey for prior year
     curr_color = RGBColor(21, 57, 96)     # dark blue for current year
     if len(plot.series) >= 1:
+        plot.series[0].format.fill.solid()
+        plot.series[0].format.fill.fore_color.rgb = prev_color
         for point in plot.series[0].points:
             fill = point.format.fill
             fill.solid()
             fill.fore_color.rgb = prev_color
     if len(plot.series) >= 2:
+        plot.series[1].format.fill.solid()
+        plot.series[1].format.fill.fore_color.rgb = curr_color
         for point in plot.series[1].points:
             fill = point.format.fill
             fill.solid()
@@ -734,8 +750,6 @@ def build_presentation(xlsm_path: str, template_path: str) -> io.BytesIO:
     # Trim empty rows for ZipCodes table rendering so we don't bloat the slide height
     df_zipcodes_table = df_zipcodes.copy()
     df_zipcodes_table.dropna(how="all", inplace=True)
-    if len(df_zipcodes_table.columns) > 0:
-        df_zipcodes_table.dropna(subset=[df_zipcodes_table.columns[0]], how="all", inplace=True)
     df_zipcodes_table.reset_index(drop=True, inplace=True)
 
     # Trim empty rows for DistanceTravelled to avoid trailing blank rows
@@ -788,6 +802,11 @@ def build_presentation(xlsm_path: str, template_path: str) -> io.BytesIO:
         "ZIP3": df_leasing.iloc[5, 0],
         "ZIP4": df_leasing.iloc[6, 0],
         "ZIP5": df_leasing.iloc[7, 0],
+        "ZIP_P1": df_leasing.iloc[10, 0],
+        "ZIP_P2": df_leasing.iloc[11, 0],
+        "ZIP_P3": df_leasing.iloc[12, 0],
+        "ZIP_P4": df_leasing.iloc[13, 0],
+        "ZIP_P5": df_leasing.iloc[14, 0],
         "ZIPANALYSIS15": df_zipcodes.iloc[0, 14],
         "DDANALYSIS12": df_drawdemos.iloc[0, 18],
         "CMPANALYSIS10": df_sheet2.iloc[0, 9],
@@ -1218,7 +1237,11 @@ def build_presentation(xlsm_path: str, template_path: str) -> io.BytesIO:
                 cell.fill.solid()
                 cell.fill.fore_color.rgb = gray
                 for paragraph in cell.text_frame.paragraphs:
+                    if not paragraph.runs:
+                        paragraph.add_run().text = ""
                     for run in paragraph.runs:
+                        run.font.name = "Roboto"
+                        run.font.size = Pt(9)
                         run.font.bold = True
                         run.font.color.rgb = black
 
@@ -1228,6 +1251,19 @@ def build_presentation(xlsm_path: str, template_path: str) -> io.BytesIO:
                 avg_keywords=["average of tested locations", "average/totals"],
                 sheet_name=sheet_name
             )
+            if sheet_name == "ZipCodes" and len(table.rows) > 0:
+                avg_row = table.rows[len(table.rows) - 1]
+                for cell in avg_row.cells:
+                    if cell.text.strip() == "":
+                        cell.text = " "
+                    for paragraph in cell.text_frame.paragraphs:
+                        if not paragraph.runs:
+                            paragraph.add_run().text = " "
+                        for run in paragraph.runs:
+                            run.font.name = "Roboto"
+                            run.font.size = Pt(9)
+                            run.font.bold = True
+                            run.font.color.rgb = RGBColor(0, 0, 0)
 
     # Write PPT to memory buffer and return
     output = io.BytesIO()
